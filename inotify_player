@@ -54,7 +54,7 @@ def inotify_thread(capturedir):
 
             if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
                 print("Playing {}/{}".format(path, filename))
-                subprocess.run(["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", "{}/{}".format(path, filename)])
+                subprocess.run(["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", "{}/{}".format(path, filename)], "> /dev/null", "2>&1")
 
 
 if __name__ == "__main__":
