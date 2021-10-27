@@ -8,11 +8,26 @@ import json
 import inotify.adapters
 import inotify.constants
 import subprocess
+import _thread
+from queue import Queue
 
 
 def main():
     capturedir = parse_config()
-    inotify_thread(capturedir)
+    read_queue = Queue()
+    # try:
+    #    _thread.start_new_thread(inotify_thread, (capturedir, read_queue))
+    # except:
+    #    print("Error: unable to start inotify_thread")
+    #    sys.exit(1)
+    try:
+        _thread.start_new_thread(play_file, (read_queue,))
+    except:
+        print("Error: unable to start play_file_thread")
+        sys.exit(1)
+    inotify_thread(capturedir, read_queue)
+    # while True:
+    #    pass
 
 
 def parse_config():
@@ -31,7 +46,8 @@ def parse_config():
 
     path = Path(options.filename)
     if path.is_file():
-        print(f'The file {options.filename} exists, reading...')
+        # print(f'The file {options.filename} exists, reading...')
+        pass
     else:
         print(f'The file {options.filename} does not exist')
         sys.exit(1)
@@ -43,18 +59,33 @@ def parse_config():
     return config['captureDir']
 
 
-def inotify_thread(capturedir):
-    print("Setting up InotifyTree on {}...".format(capturedir))
-    i = inotify.adapters.InotifyTree(capturedir, mask=inotify.constants.IN_CLOSE_WRITE)
-    print("Waiting on inotify events...")
+def inotify_thread(capturedir, read_queue):
+    # print("INOTIFY_THREAD: Setting up InotifyTree on {}...".format(capturedir))
+    i = inotify.adapters.InotifyTree(
+            capturedir, mask=inotify.constants.IN_CLOSE_WRITE
+            )
+    # print("INOTIFY_THREAD: Waiting on inotify events...")
 
+    # while True:
+    for event in i.event_gen(yield_nones=False):
+        (_, type_names, path, filename) = event
+
+        if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
+            # print("INOTIFY_THREAD: Queuing {}/{}".format(path, filename))
+            read_queue.put("{}/{}".format(path, filename))
+
+
+def play_file(read_queue):
+    # print("PLAY_FILE_THREAD: started")
     while True:
-        for event in i.event_gen(yield_nones=False):
-            (_, type_names, path, filename) = event
-
-            if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
-                print("Playing {}/{}".format(path, filename))
-                subprocess.run(["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", "{}/{}".format(path, filename)], "> /dev/null", "2>&1")
+        # print("PLAY_FILE_THREAD: Waiting for item...")
+        play_filename = read_queue.get()
+        # print("PLAY_FILE_THREAD: Got a file to play, {}".format(play_filename))
+        subprocess.run(
+                ["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", play_filename],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT
+                )
 
 
 if __name__ == "__main__":
