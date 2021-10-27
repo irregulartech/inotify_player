@@ -9,38 +9,53 @@ import inotify.adapters
 import inotify.constants
 import subprocess
 
-parser = OptionParser()
-parser.add_option("-c", "--config", dest="filename",
-                  help="trunk-recorder config file", metavar="FILE")
-parser.add_option("-q", "--quiet",
-                  action="store_false", dest="verbose", default=True,
-                  help="don't print status messages to stdout")
 
-(options, args) = parser.parse_args()
+def main():
+    capturedir = parse_config()
+    inotify_thread(capturedir)
 
-if options.filename is None:
-    print("Please provide a trunk-recorder config file.")
-    sys.exit(1)
 
-path = Path(options.filename)
-if path.is_file():
-    print(f'The file {options.filename} exists, reading...')
-else:
-    print(f'The file {options.filename} does not exist')
-    sys.exit(1)
+def parse_config():
+    parser = OptionParser()
+    parser.add_option("-c", "--config", dest="filename",
+                      help="trunk-recorder config file", metavar="FILE")
+    parser.add_option("-q", "--quiet",
+                      action="store_false", dest="verbose", default=True,
+                      help="don't print status messages to stdout")
 
-f = open(options.filename,)
-config = json.load(f)
-f.close()
+    (options, args) = parser.parse_args()
 
-capturedir = config['captureDir']
+    if options.filename is None:
+        print("Please provide a trunk-recorder config file.")
+        sys.exit(1)
 
-i = inotify.adapters.InotifyTree(capturedir, mask=inotify.constants.IN_CLOSE_WRITE)
+    path = Path(options.filename)
+    if path.is_file():
+        print(f'The file {options.filename} exists, reading...')
+    else:
+        print(f'The file {options.filename} does not exist')
+        sys.exit(1)
 
-while True:
-    for event in i.event_gen(yield_nones=False):
-        (_, type_names, path, filename) = event
+    f = open(options.filename,)
+    config = json.load(f)
+    f.close()
 
-        if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
-            print("Playing {}/{}".format(path, filename))
-            subprocess.run(["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", "{}/{}".format(path, filename)])
+    return config['captureDir']
+
+
+def inotify_thread(capturedir):
+    print("Setting up InotifyTree on {}...".format(capturedir))
+    i = inotify.adapters.InotifyTree(capturedir, mask=inotify.constants.IN_CLOSE_WRITE)
+    print("Waiting on inotify events...")
+
+    while True:
+        for event in i.event_gen(yield_nones=False):
+            (_, type_names, path, filename) = event
+
+            if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
+                print("Playing {}/{}".format(path, filename))
+                subprocess.run(["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", "{}/{}".format(path, filename)])
+
+
+if __name__ == "__main__":
+    main()
