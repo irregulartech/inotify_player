@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+#
+
+import sys
+from optparse import OptionParser
+from pathlib import Path
+import json
+import inotify.adapters
+import inotify.constants
+import subprocess
+
+parser = OptionParser()
+parser.add_option("-c", "--config", dest="filename",
+                  help="trunk-recorder config file", metavar="FILE")
+parser.add_option("-q", "--quiet",
+                  action="store_false", dest="verbose", default=True,
+                  help="don't print status messages to stdout")
+
+(options, args) = parser.parse_args()
+
+if options.filename is None:
+    print("Please provide a trunk-recorder config file.")
+    sys.exit(1)
+
+path = Path(options.filename)
+if path.is_file():
+    print(f'The file {options.filename} exists, reading...')
+else:
+    print(f'The file {options.filename} does not exist')
+    sys.exit(1)
+
+f = open(options.filename,)
+config = json.load(f)
+f.close()
+
+capturedir = config['captureDir']
+
+i = inotify.adapters.InotifyTree(capturedir, mask=inotify.constants.IN_CLOSE_WRITE)
+
+while True:
+    for event in i.event_gen(yield_nones=False):
+        (_, type_names, path, filename) = event
+
+        if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
+            print("Playing {}/{}".format(path, filename))
+            subprocess.run(["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", "{}/{}".format(path, filename)])
