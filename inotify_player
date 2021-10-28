@@ -25,6 +25,7 @@ def main():
     except:
         print("Error: unable to start play_file_thread")
         sys.exit(1)
+    #I want this to run as a thread and it's commented out above because it doesn't work
     inotify_thread(capturedir, read_queue)
     # while True:
     #    pass
@@ -61,6 +62,7 @@ def parse_config():
 
 def inotify_thread(capturedir, read_queue):
     # print("INOTIFY_THREAD: Setting up InotifyTree on {}...".format(capturedir))
+    #when run as a thread, the below line doesn't error, or seem to ever return.
     i = inotify.adapters.InotifyTree(
             capturedir, mask=inotify.constants.IN_CLOSE_WRITE
             )
