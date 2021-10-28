@@ -10,25 +10,25 @@ import inotify.constants
 import subprocess
 import _thread
 from queue import Queue
+import time
 
 
 def main():
     capturedir = parse_config()
     read_queue = Queue()
-    # try:
-    #    _thread.start_new_thread(inotify_thread, (capturedir, read_queue))
-    # except:
-    #    print("Error: unable to start inotify_thread")
-    #    sys.exit(1)
+    try:
+        _thread.start_new_thread(inotify_thread, (capturedir, read_queue))
+    except:
+        print("Error: unable to start inotify_thread")
+        sys.exit(1)
     try:
         _thread.start_new_thread(play_file, (read_queue,))
     except:
         print("Error: unable to start play_file_thread")
         sys.exit(1)
-    #I want this to run as a thread and it's commented out above because it doesn't work
-    inotify_thread(capturedir, read_queue)
-    # while True:
-    #    pass
+    while True:
+        time.sleep(1)
+        pass
 
 
 def parse_config():
@@ -62,7 +62,6 @@ def parse_config():
 
 def inotify_thread(capturedir, read_queue):
     # print("INOTIFY_THREAD: Setting up InotifyTree on {}...".format(capturedir))
-    #when run as a thread, the below line doesn't error, or seem to ever return.
     i = inotify.adapters.InotifyTree(
             capturedir, mask=inotify.constants.IN_CLOSE_WRITE
             )
