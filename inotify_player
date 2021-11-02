@@ -10,7 +10,7 @@ import inotify.constants
 import subprocess
 import _thread
 from queue import Queue
-import time
+import datetime
 
 
 def main():
@@ -29,13 +29,22 @@ def main():
         print("Error: unable to start play_file_thread")
         sys.exit(1)
     while True:
-        # read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "start": media_meta['start_time'], "srcList": media_meta['srcList']})
         display = now_playing.get()
-        print("\033c", end="")
-        if display["audio"] != "idle":
-            print(display)
-        else:
-            print("idle")
+        show_it(display, read_queue.qsize())
+
+
+def show_it(meta, q):
+    print("\033c", end="")
+    currtime = datetime.datetime.now()
+    # .strftime("%Y-%m-%d %H:%M:%S")
+    if meta["audio"] == "idle":
+        meta = {"audio": "idle", "freq_tag": "idle", "freq": "000000000", "start": currtime, "srcList": "idle"}
+    print("Last Update Time : {}".format(currtime.strftime("%Y-%m-%d %H:%M:%S")))
+    print("Recording  Time  : {}".format(meta["start"].strftime("%Y-%m-%d %H:%M:%S")))
+    print("Queue: {}\t\tDelay: {}".format(q, (currtime - meta["start"])))
+    print("--------------------------------------")
+    print("{} Hz : {}".format(meta["freq"], meta["freq_tag"]))
+    print(meta)
 
 
 def parse_config():
@@ -85,8 +94,7 @@ def inotify_thread(capturedir, read_queue):
             media_json = open(media_audio.replace('m4a', 'json'))
             media_meta = json.load(media_json)
             media_json.close()
-            # media_freq_tag = media_meta['doesnotexist']
-            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "start": media_meta['start_time'], "srcList": media_meta['srcList']})
+            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "freq_tag": "Unavailable", "start": media_meta['start_time'], "srcList": media_meta['srcList']})
             read_queue.put({"audio": "idle"})
 
 
