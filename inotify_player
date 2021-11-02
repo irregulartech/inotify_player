@@ -16,19 +16,26 @@ import time
 def main():
     capturedir = parse_config()
     read_queue = Queue()
+    now_playing = Queue()
+    now_playing.put({"audio": "idle"})
     try:
         _thread.start_new_thread(inotify_thread, (capturedir, read_queue))
     except:
         print("Error: unable to start inotify_thread")
         sys.exit(1)
     try:
-        _thread.start_new_thread(play_file, (read_queue,))
+        _thread.start_new_thread(play_file, (read_queue, now_playing))
     except:
         print("Error: unable to start play_file_thread")
         sys.exit(1)
     while True:
-        time.sleep(1)
-        pass
+        # read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "start": media_meta['start_time'], "srcList": media_meta['srcList']})
+        display = now_playing.get()
+        print("\033c", end="")
+        if display["audio"] != "idle":
+            print(display)
+        else:
+            print("idle")
 
 
 def parse_config():
@@ -53,9 +60,9 @@ def parse_config():
         print(f'The file {options.filename} does not exist')
         sys.exit(1)
 
-    f = open(options.filename,)
-    config = json.load(f)
-    f.close()
+    config_file = open(options.filename,)
+    config = json.load(config_file)
+    config_file.close()
 
     return config['captureDir']
 
@@ -73,20 +80,29 @@ def inotify_thread(capturedir, read_queue):
 
         if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
             # print("INOTIFY_THREAD: Queuing {}/{}".format(path, filename))
-            read_queue.put("{}/{}".format(path, filename))
+            # this will need a rewrite if we support reading on modify
+            media_audio = "{}/{}".format(path, filename)
+            media_json = open(media_audio.replace('m4a', 'json'))
+            media_meta = json.load(media_json)
+            media_json.close()
+            # media_freq_tag = media_meta['doesnotexist']
+            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "start": media_meta['start_time'], "srcList": media_meta['srcList']})
+            read_queue.put({"audio": "idle"})
 
 
-def play_file(read_queue):
+def play_file(read_queue, now_playing):
     # print("PLAY_FILE_THREAD: started")
     while True:
         # print("PLAY_FILE_THREAD: Waiting for item...")
-        play_filename = read_queue.get()
-        # print("PLAY_FILE_THREAD: Got a file to play, {}".format(play_filename))
-        subprocess.run(
-                ["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", play_filename],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.STDOUT
-                )
+        media = read_queue.get()
+        # print("PLAY_FILE_THREAD: Got a file to play, {}".format(media["audio"]))
+        now_playing.put(media)
+        if media["audio"] != "idle":
+            subprocess.run(
+                    ["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", media["audio"]],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.STDOUT
+                    )
 
 
 if __name__ == "__main__":
