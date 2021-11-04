@@ -11,13 +11,14 @@ import subprocess
 import _thread
 from queue import Queue
 import datetime
+import time
 
 
 def main():
     capturedir = parse_config()
     read_queue = Queue()
     now_playing = Queue()
-    now_playing.put({"audio": "idle"})
+    now_playing.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}]})
     try:
         _thread.start_new_thread(inotify_thread, (capturedir, read_queue))
     except:
@@ -30,21 +31,34 @@ def main():
         sys.exit(1)
     while True:
         display = now_playing.get()
-        show_it(display, read_queue.qsize())
+        # Prime the pump by displaying everything except the unit tag as that may not be known at the start of the transmission
+        show_it(display, {'src': 0, 'tag': ''}, read_queue.qsize())
+        lasttime = display['start']
+        for src in display['srcList']:
+            if src['src'] != 0:
+                sleeptime = src['time'] - lasttime
+                time.sleep(sleeptime)
+                lasttime = lasttime + sleeptime
+                show_it(display, src, read_queue.qsize())
 
 
-def show_it(meta, q):
+def show_it(meta, src, q):
     print("\033c", end="")
+    # print(meta)
+    # print(src)
+    # print(q)
     currtime = datetime.datetime.now()
-    # .strftime("%Y-%m-%d %H:%M:%S")
-    if meta["audio"] == "idle":
-        meta = {"audio": "idle", "freq_tag": "idle", "freq": "000000000", "start": currtime, "srcList": "idle"}
-    print("Last Update Time : {}".format(currtime.strftime("%Y-%m-%d %H:%M:%S")))
-    print("Recording  Time  : {}".format(meta["start"].strftime("%Y-%m-%d %H:%M:%S")))
-    print("Queue: {}\t\tDelay: {}".format(q, (currtime - meta["start"])))
-    print("--------------------------------------")
-    print("{} Hz : {}".format(meta["freq"], meta["freq_tag"]))
-    print(meta)
+    if meta['audio'] == 'idle':
+        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': 'idle', 'srcList': 'idle'}
+    print('Last Update Time : {}'.format(currtime.strftime("%Y-%m-%d %H:%M:%S")))
+    print('Recording  Time  : {}'.format(datetime.datetime.fromtimestamp(meta['start']).strftime("%Y-%m-%d %H:%M:%S")))
+    print('Queue: {}\t\tDelay: {}'.format(q, (currtime - datetime.datetime.fromtimestamp(meta['start']))))
+    print('--------------------------------------')
+    print('{} Hz : {}'.format(meta['freq'], meta['freq_tag']))
+    print('TG: {}'.format(meta['tid']))
+    if src['tag'] == "":
+        src['tag'] = "Unknown"
+    print('UID: {} [{}]'.format(src['tag'], src['src']))
 
 
 def parse_config():
@@ -94,8 +108,8 @@ def inotify_thread(capturedir, read_queue):
             media_json = open(media_audio.replace('m4a', 'json'))
             media_meta = json.load(media_json)
             media_json.close()
-            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "freq_tag": "Unavailable", "start": media_meta['start_time'], "srcList": media_meta['srcList']})
-            read_queue.put({"audio": "idle"})
+            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "freq_tag": "Unavailable", "start": media_meta['start_time'], "tid": media_meta['talkgroup'], "srcList": media_meta['srcList']})
+            read_queue.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}]})
 
 
 def play_file(read_queue, now_playing):
