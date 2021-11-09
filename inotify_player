@@ -18,7 +18,7 @@ def main():
     capturedir = parse_config()
     read_queue = Queue()
     now_playing = Queue()
-    now_playing.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}]})
+    now_playing.put({'audio': 'idle', 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'talkgroup_tag': 'idle'})
     try:
         _thread.start_new_thread(inotify_thread, (capturedir, read_queue))
     except:
@@ -49,12 +49,12 @@ def show_it(meta, src, q):
     # print(q)
     currtime = datetime.datetime.now()
     if meta['audio'] == 'idle':
-        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': 'idle', 'srcList': 'idle'}
+        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': 'idle', 'talkgroup_tag': 'idle', 'srcList': 'idle'}
     print('Last Update Time : {}'.format(currtime.strftime("%Y-%m-%d %H:%M:%S")))
     print('Recording  Time  : {}'.format(datetime.datetime.fromtimestamp(meta['start']).strftime("%Y-%m-%d %H:%M:%S")))
     print('Queue: {}\t\tDelay: {}'.format(q, (currtime - datetime.datetime.fromtimestamp(meta['start']))))
     print('--------------------------------------')
-    print('{} Hz : {}'.format(meta['freq'], meta['freq_tag']))
+    print('{} Hz : {}'.format(meta['freq'], meta['talkgroup_tag']))
     print('TG: {}'.format(meta['tid']))
     if src['tag'] == "":
         src['tag'] = "Unknown"
@@ -108,7 +108,7 @@ def inotify_thread(capturedir, read_queue):
             media_json = open(media_audio.replace('m4a', 'json'))
             media_meta = json.load(media_json)
             media_json.close()
-            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], "freq_tag": "Unavailable", "start": media_meta['start_time'], "tid": media_meta['talkgroup'], "srcList": media_meta['srcList']})
+            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], 'talkgroup_tag': media_meta['talkgroup_tag'], "start": media_meta['start_time'], "tid": media_meta['talkgroup'], "srcList": media_meta['srcList']})
             read_queue.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}]})
 
 
