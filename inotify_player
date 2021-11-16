@@ -97,7 +97,7 @@ def main():
         if display['audio'] != 'idle':
             currtime = datetime.datetime.now()
             if running_config['mac'] is not None:
-                notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {(currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds()}\n{display['talkgroup_tag']}", 'utf-8')
+                notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {int((currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds())}\n{display['talkgroup_tag']}", 'utf-8')
                 notify_queue.put(notify_bytes)
         show_it(display, {'src': 0, 'tag': ''}, read_queue.qsize())
         lasttime = display['start']
@@ -109,7 +109,7 @@ def main():
                 if display['audio'] != 'idle':
                     currtime = datetime.datetime.now()
                     if running_config['mac'] is not None:
-                        notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {(currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds()}\n{display['talkgroup_tag']}\n{src['tag']}", 'utf-8')
+                        notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {int((currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds())}\n{display['talkgroup_tag']}\n{src['tag']}\n{hex(src['src'])} -> {hex(display['tid'])}", 'utf-8')
                         notify_queue.put(notify_bytes)
                 show_it(display, src, read_queue.qsize())
 
@@ -121,16 +121,16 @@ def show_it(meta, src, q):
     # print(q)
     currtime = datetime.datetime.now()
     if meta['audio'] == 'idle':
-        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': 'idle', 'talkgroup_tag': 'idle', 'srcList': 'idle'}
+        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': '0', 'talkgroup_tag': 'idle', 'srcList': 'idle'}
     print('Last Update Time : {}'.format(currtime.strftime("%Y-%m-%d %H:%M:%S")))
     print('Recording  Time  : {}'.format(datetime.datetime.fromtimestamp(meta['start']).strftime("%Y-%m-%d %H:%M:%S")))
-    print('Queue: {}\t\t    Delay: {}'.format(q, (currtime - datetime.datetime.fromtimestamp(meta['start'])).total_seconds()))
+    print('Queue: {}\t\t    Delay: {}'.format(q, int((currtime - datetime.datetime.fromtimestamp(meta['start'])).total_seconds())))
     print('--------------------------------------')
     print('{} Hz : {}'.format(meta['freq'], meta['talkgroup_tag']))
-    print('TG: {}'.format(meta['tid']))
+    print('TG: {}'.format(hex(int(meta['tid']))))
     if src['tag'] == "":
         src['tag'] = "Unknown"
-    print('UID: {} [{}]'.format(src['tag'], src['src']))
+    print('UID: {} [{}]'.format(src['tag'], hex(src['src'])))
 
 
 def parse_config():
