@@ -81,7 +81,7 @@ def main():
         print("Error: unable to start inotify_thread")
         sys.exit(1)
     try:
-        _thread.start_new_thread(play_file, (read_queue, now_playing))
+        _thread.start_new_thread(play_file, (read_queue, now_playing, running_config['play']))
     except:
         print("Error: unable to start play_file_thread")
         sys.exit(1)
@@ -138,9 +138,11 @@ def parse_config():
     parser.add_option("-c", "--config", dest="filename",
                       help="trunk-recorder config file", metavar="FILE")
     parser.add_option("-m", "--mac", dest="mac",
-                      help="mac address of pine time for notifications", metavar="FILE")
+                      help="mac address of pine time for notifications")
     parser.add_option("-d", "--device", dest="hci",
-                      help="bluetooth device to use to send notifications.  hci[0-9] supported, defaults to hci0", metavar="FILE")
+                      help="bluetooth device to use to send notifications.  hci[0-9] supported, defaults to hci0")
+    parser.add_option("-n", "--notify-only", action="store_false", dest="notify", default=False,
+                      help="do not play audio, only show ui and send notifications")
     parser.add_option("-q", "--quiet",
                       action="store_false", dest="verbose", default=True,
                       help="don't print status messages to stdout")
@@ -161,6 +163,11 @@ def parse_config():
             print("Please install bluepy to use notification features")
             sys.exit(1)
 
+    if options.notify is not None:
+        play = False
+    else:
+        play = True
+
     path = Path(options.filename)
     if path.is_file():
         # print(f'The file {options.filename} exists, reading...')
@@ -176,6 +183,7 @@ def parse_config():
     retval['captureDir'] = config['captureDir']
     retval['mac'] = options.mac
     retval['iface'] = iface
+    retval['play'] = play
 
     return retval
 
@@ -202,19 +210,20 @@ def inotify_thread(capturedir, read_queue):
             read_queue.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}]})
 
 
-def play_file(read_queue, now_playing):
+def play_file(read_queue, now_playing, play):
     # print("PLAY_FILE_THREAD: started")
     while True:
         # print("PLAY_FILE_THREAD: Waiting for item...")
         media = read_queue.get()
         # print("PLAY_FILE_THREAD: Got a file to play, {}".format(media["audio"]))
         now_playing.put(media)
-        if media["audio"] != "idle":
-            subprocess.run(
-                    ["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", media["audio"]],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.STDOUT
-                    )
+        if play:
+            if media["audio"] != "idle":
+                subprocess.run(
+                        ["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", media["audio"]],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.STDOUT
+                        )
 
 
 if __name__ == "__main__":
