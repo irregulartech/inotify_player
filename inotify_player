@@ -141,7 +141,7 @@ def parse_config():
                       help="mac address of pine time for notifications")
     parser.add_option("-d", "--device", dest="hci",
                       help="bluetooth device to use to send notifications.  hci[0-9] supported, defaults to hci0")
-    parser.add_option("-n", "--notify-only", action="store_false", dest="notify", default=False,
+    parser.add_option("-n", "--notify-only", action="store_true", dest="notify", default=False,
                       help="do not play audio, only show ui and send notifications")
     parser.add_option("-q", "--quiet",
                       action="store_false", dest="verbose", default=True,
