@@ -163,7 +163,7 @@ def parse_config():
             print("Please install bluepy to use notification features")
             sys.exit(1)
 
-    if options.notify is not None:
+    if options.notify:
         play = False
     else:
         play = True
