@@ -39,7 +39,10 @@ def send_notification(mac, iface, notify_bytes):
     try:
         p.setMTU(200)
         # p.setSecurityLevel(level="high")
-        c = p.getCharacteristics(uuid="00002a46-0000-1000-8000-00805f9b34fb")[0]
+        if notify_bytes == 'sync':
+            c = p.getCharacteristics(uuid="00002a2b-0000-1000-8000-00805f9b34fb")[0]
+        else:
+            c = p.getCharacteristics(uuid="00002a46-0000-1000-8000-00805f9b34fb")[0]
         # print("configured")
     except Exception as e:
         p.disconnect()
@@ -48,8 +51,24 @@ def send_notification(mac, iface, notify_bytes):
         return False
 
     try:
-        c.write(notify_bytes)
-        # print("notification sent")
+        if notify_bytes == 'sync':
+            # [Pinetime-JF:/service0015/char0016]# write "0xe4 0x07 0x0c 0x1f 0x0e 0x02 0x00 0x00 0x00"
+            # This is the format for the current time as hex bytes:
+            # <lsb of year> <msb of year> <month (1-12)> <day (1-31)> <hour (0-23)> <minute (0-59)> <seconds (0-59)> <weekday (1-7 where 1=Monday)> <fractions (1/256th of second)>
+            # datetime.datetime.now().strftime("%Y %m %d %H %M %S %u")
+            year = int(datetime.datetime.now().strftime("%Y")).to_bytes(2,'little')
+            month = int(datetime.datetime.now().strftime("%m")).to_bytes(1, 'little')
+            day = int(datetime.datetime.now().strftime("%d")).to_bytes(1, 'little')
+            hour = int(datetime.datetime.now().strftime("%H")).to_bytes(1, 'little')
+            minute = int(datetime.datetime.now().strftime("%M")).to_bytes(1, 'little')
+            second = int(datetime.datetime.now().strftime("%S")).to_bytes(1, 'little')
+            dow = int(datetime.datetime.now().strftime("%u")).to_bytes(1, 'little')
+            frac = int(0).to_bytes(1, 'little')
+            c.write(year + month + day + hour + minute + second + dow + frac)
+            # print("time set")
+        else:
+            c.write(notify_bytes)
+            # print("notification sent")
     except Exception as e:
         # print(e)
         # print("notification failed")
@@ -61,8 +80,20 @@ def send_notification(mac, iface, notify_bytes):
 
 
 def notification_thread(mac, iface, notify_queue):
+    # print("notification_thread started")
     while True:
         notify_bytes = notify_queue.get()
+        if notify_bytes == 'sync':
+            # print("attempting sync")
+            if send_notification(mac, iface, notify_bytes):
+                notify_queue.put(bytes("\x00\x01\x00Trunk Recorder\x00Time synced\nSystem Ready", 'utf-8'))
+            else:
+                reset_bluetooth(iface)
+                if send_notification(mac, iface, notify_bytes):
+                    notify_queue.put(bytes("\x00\x01\x00Trunk Recorder\x00Time synced\nSystem Ready", 'utf-8'))
+                else:
+                    print("Failed to sync time to pine time, aborting")
+                    sys.exit(1)
         if not send_notification(mac, iface, notify_bytes):
             reset_bluetooth(iface)
             send_notification(mac, iface, notify_bytes)
@@ -74,7 +105,7 @@ def main():
     now_playing = Queue()
     now_playing.put({'audio': 'idle', 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'talkgroup_tag': 'idle'})
     notify_queue = Queue()
-    notify_queue.put(bytes("\x00\x01\x00Trunk Recorder\x00Started", 'utf-8'))
+    notify_queue.put('sync')
     try:
         _thread.start_new_thread(inotify_thread, (running_config['captureDir'], read_queue))
     except:
