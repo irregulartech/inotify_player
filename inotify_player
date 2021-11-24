@@ -19,7 +19,9 @@ except ImportError:
     bluepy = False
 
 
-def reset_bluetooth(iface):
+def reset_bluetooth(iface, verbose):
+    if verbose:
+        print(f"interface hci{iface} reset")
     subprocess.run(
             ["sudo", "hciconfig", "hci" + str(iface), "reset"],
             stdout=subprocess.DEVNULL,
@@ -27,40 +29,62 @@ def reset_bluetooth(iface):
             )
 
 
-def connect_ble(mac, iface):
+def connect_ble(mac, iface, verbose):
+    p = False
     try:
         p = btle.Peripheral(mac, addrType=btle.ADDR_TYPE_RANDOM, iface=iface)
-        # print("connected")
-        return p
+        if verbose:
+            print("connected")
     except Exception as e:
-        # print(e)
+        if verbose:
+            print(f"Connect Try 1: {e}")
         # fail once, try again
         True
-    try:
-        p = btle.Peripheral(mac, addrType=btle.ADDR_TYPE_RANDOM, iface=iface)
-        # print("connected")
-        return p
-    except Exception as e:
-        # print(e)
-        # print("connect block")
+    if p:
+        if p.getState() != "conn":
+            try:
+                p = btle.Peripheral(mac, addrType=btle.ADDR_TYPE_RANDOM, iface=iface)
+                if verbose:
+                    print("connected")
+            except Exception as e:
+                if verbose:
+                    print(f"Connect Try 2: {e}")
+                return False
+    if p:
+        try:
+            p.setMTU(200)
+            if verbose:
+                print("mtu set")
+            # p.setSecurityLevel(level="high")
+        except Exception as e:
+            if verbose:
+                print(f"MTU set failed: {e}")
+            return False
+    else:
+        if verbose:
+            print("Failed to connect")
         return False
+    return p
 
 
-def send_notification(p, notify_bytes):
+def ble_char(verbose, p, char):
     try:
-        p.setMTU(200)
-        # p.setSecurityLevel(level="high")
-        if notify_bytes == 'sync':
-            c = p.getCharacteristics(uuid="00002a2b-0000-1000-8000-00805f9b34fb")[0]
+        if char == 'sync':
+            c = p.getCharacteristics(uuid=sync_uuid)[0]
         else:
-            c = p.getCharacteristics(uuid="00002a46-0000-1000-8000-00805f9b34fb")[0]
-        # print("configured")
+            c = p.getCharacteristics(uuid=notify_uuid)[0]
+        if verbose:
+            print("char configured")
+        return c
     except Exception as e:
         p.disconnect()
-        # print(e)
-        # print("setup block")
+        if verbose:
+            print(f"char block {e}")
         return False
 
+
+
+def send_notification(c, verbose, notify_bytes):
     try:
         if notify_bytes == 'sync':
             # [Pinetime-JF:/service0015/char0016]# write "0xe4 0x07 0x0c 0x1f 0x0e 0x02 0x00 0x00 0x00"
@@ -76,65 +100,70 @@ def send_notification(p, notify_bytes):
             dow = int(datetime.datetime.now().strftime("%u")).to_bytes(1, 'little')
             frac = int(0).to_bytes(1, 'little')
             c.write(year + month + day + hour + minute + second + dow + frac)
-            # print("time set")
+            if verbose:
+                print("time set")
         else:
             c.write(notify_bytes)
-            # print("notification sent")
+            if verbose:
+                print("notification sent")
     except Exception as e:
-        # print(e)
-        # print("notification failed")
-        p.disconnect()
+        if verbose:
+            print(f"notification failed: {e}")
         return False
 
-    p.disconnect()
     return True
 
 
-def notification_thread(mac, iface, notify_queue):
-    # print("notification_thread started")
-    p = connect_ble(mac, iface)
+def notification_thread(mac, iface, verbose, notify_queue):
+    if verbose:
+        print("notification_thread started")
+    p = connect_ble(mac, iface, verbose)
+    if p:
+        c = ble_char(verbose, p, 'sync')
     while True:
         notify_bytes = notify_queue.get()
-        if notify_bytes == 'idle':
+        if p:
             try:
-                if p:
-                    p.disconnect()
+                if p.getState() != "conn":
+                    p = connect_ble(mac, iface, verbose)
             except Exception as e:
-                # Tried to disconnect when we were already disconnected, ignore
-                True
+                p = False
         else:
-            if p:
-                try:
-                    if p.getState() != "conn":
-                        p = connect_ble(mac, iface)
-                except Exception as e:
-                    p = False
-            else:
-                p = connect_ble(mac, iface)
+            p = connect_ble(mac, iface, verbose)
         if notify_bytes == 'sync':
-            # print("attempting sync")
+            if verbose:
+                print("attempting sync")
             if p:
-                if send_notification(p, notify_bytes):
+                if c.uuid != sync_uuid:
+                    c = ble_char(verbose, p, 'sync')
+                if send_notification(c, verbose, notify_bytes):
                     notify_queue.put(bytes("\x00\x01\x00Trunk Recorder\x00Time synced\nSystem Ready", 'utf-8'))
             else:
-                reset_bluetooth(iface)
-                p = connect_ble(mac, iface)
+                reset_bluetooth(iface, verbose)
+                p = connect_ble(mac, iface, verbose)
                 if p:
-                    if send_notification(p, notify_bytes):
+                    if c.uuid != sync_uuid:
+                        c = ble_char(verbose, p, 'sync')
+                    if send_notification(c, verbose, notify_bytes):
                         notify_queue.put(bytes("\x00\x01\x00Trunk Recorder\x00Time synced\nSystem Ready", 'utf-8'))
                 else:
                     print("Failed to sync time to pine time, aborting")
                     os._exit(1)
-        elif notify_bytes != 'idle':
+        else:
+            if verbose:
+                print("attempting notify")
             if not p:
-                reset_bluetooth(iface)
-                p = connect_ble(mac, iface)
+                reset_bluetooth(iface, verbose)
+                p = connect_ble(mac, iface, verbose)
             if p:
-                if not send_notification(p, notify_bytes):
+                if c.uuid != notify_uuid:
+                    c = ble_char(verbose, p, 'notify')
+                if not send_notification(c, verbose, notify_bytes):
                     if not p:
-                        p = connect_ble(mac, iface)
+                        p = connect_ble(mac, iface, verbose)
                     if p:
-                        send_notification(p, notify_bytes)
+                        c = ble_char(verbose, p, 'notify')
+                        send_notification(c, verbose, notify_bytes)
 
 
 def main():
@@ -156,7 +185,7 @@ def main():
         os._exit(1)
     if running_config['mac'] is not None:
         try:
-            _thread.start_new_thread(notification_thread, (running_config['mac'], running_config['iface'], notify_queue))
+            _thread.start_new_thread(notification_thread, (running_config['mac'], running_config['iface'], running_config['verbose'], notify_queue))
         except:
             print("Error: unable to start notification_thread")
             os._exit(1)
@@ -168,9 +197,7 @@ def main():
             if running_config['mac'] is not None:
                 notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {int((currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds())}\n{display['talkgroup_tag']}", 'utf-8')
                 notify_queue.put(notify_bytes)
-        else:
-            notify_queue.put('idle')
-        show_it(display, {'src': 0, 'tag': ''}, read_queue.qsize())
+        show_it(display, {'src': 0, 'tag': ''}, read_queue.qsize(), running_config['verbose'])
         lasttime = display['start']
         for src in display['srcList']:
             if src['src'] != 0:
@@ -182,12 +209,12 @@ def main():
                     if running_config['mac'] is not None:
                         notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {int((currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds())}\n{display['talkgroup_tag']}\n{src['tag']}\n{hex(src['src'])} -> {hex(display['tid'])}", 'utf-8')
                         notify_queue.put(notify_bytes)
-                    else:
-                        notify_queue.put('idle')
-                show_it(display, src, read_queue.qsize())
+                show_it(display, src, read_queue.qsize(), running_config['verbose'])
 
 
-def show_it(meta, src, q):
+def show_it(meta, src, q, verbose):
+    if verbose:
+        return
     print("\033c", end="")
     # print(meta)
     # print(src)
@@ -216,9 +243,9 @@ def parse_config():
                       help="bluetooth device to use to send notifications.  hci[0-9] supported, defaults to hci0")
     parser.add_option("-n", "--notify-only", action="store_true", dest="notify", default=False,
                       help="do not play audio, only show ui and send notifications")
-    parser.add_option("-q", "--quiet",
-                      action="store_false", dest="verbose", default=True,
-                      help="don't print status messages to stdout")
+    parser.add_option("-v", "--verbose",
+                      action="store_true", dest="verbose", default=False,
+                      help="print debugging into to stdout")
 
     (options, args) = parser.parse_args()
 
@@ -241,10 +268,15 @@ def parse_config():
     else:
         play = True
 
+    if options.verbose:
+        verbose = True
+    else:
+        verbose = False
+
     path = Path(options.filename)
     if path.is_file():
-        # print(f'The file {options.filename} exists, reading...')
-        pass
+        if verbose:
+            print(f'The file {options.filename} exists, reading...')
     else:
         print(f'The file {options.filename} does not exist')
         os._exit(1)
@@ -257,6 +289,7 @@ def parse_config():
     retval['mac'] = options.mac
     retval['iface'] = iface
     retval['play'] = play
+    retval['verbose'] = verbose
 
     return retval
 
@@ -300,4 +333,6 @@ def play_file(read_queue, now_playing, play):
 
 
 if __name__ == "__main__":
+    sync_uuid = '00002a2b-0000-1000-8000-00805f9b34fb'
+    notify_uuid = '00002a46-0000-1000-8000-00805f9b34fb'
     main()
