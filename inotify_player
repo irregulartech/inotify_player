@@ -83,7 +83,6 @@ def ble_char(verbose, p, char):
         return False
 
 
-
 def send_notification(c, verbose, notify_bytes):
     try:
         if notify_bytes == 'sync':
@@ -91,7 +90,7 @@ def send_notification(c, verbose, notify_bytes):
             # This is the format for the current time as hex bytes:
             # <lsb of year> <msb of year> <month (1-12)> <day (1-31)> <hour (0-23)> <minute (0-59)> <seconds (0-59)> <weekday (1-7 where 1=Monday)> <fractions (1/256th of second)>
             # datetime.datetime.now().strftime("%Y %m %d %H %M %S %u")
-            year = int(datetime.datetime.now().strftime("%Y")).to_bytes(2,'little')
+            year = int(datetime.datetime.now().strftime("%Y")).to_bytes(2, 'little')
             month = int(datetime.datetime.now().strftime("%m")).to_bytes(1, 'little')
             day = int(datetime.datetime.now().strftime("%d")).to_bytes(1, 'little')
             hour = int(datetime.datetime.now().strftime("%H")).to_bytes(1, 'little')
@@ -126,7 +125,7 @@ def notification_thread(mac, iface, verbose, notify_queue):
             try:
                 if p.getState() != "conn":
                     p = connect_ble(mac, iface, verbose)
-            except Exception as e:
+            except Exception:
                 p = False
         else:
             p = connect_ble(mac, iface, verbose)
