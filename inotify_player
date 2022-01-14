@@ -169,11 +169,12 @@ def main():
     running_config = parse_config()
     read_queue = Queue()
     now_playing = Queue()
-    now_playing.put({'audio': 'idle', 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'talkgroup_tag': 'idle'})
+    now_playing.put({'audio': 'idle', 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'talkgroup_tag': 'idle', 'length': 0})
     notify_queue = Queue()
     notify_queue.put('sync')
+    currently_active = {}
     try:
-        _thread.start_new_thread(inotify_thread, (running_config['captureDir'], read_queue))
+        _thread.start_new_thread(inotify_thread, (running_config['captureDir'], read_queue, currently_active))
     except:
         print("Error: unable to start inotify_thread")
         os._exit(1)
@@ -189,14 +190,16 @@ def main():
             print("Error: unable to start notification_thread")
             os._exit(1)
     while True:
-        display = now_playing.get()
+        display_maybe = now_playing.get()
+        if display_maybe['audio'] != 'update':
+            display = display_maybe
         # Prime the pump by displaying everything except the unit tag as that may not be known at the start of the transmission
         if display['audio'] != 'idle':
             currtime = datetime.datetime.now()
             if running_config['mac'] is not None:
                 notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {int((currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds())}\n{display['talkgroup_tag']}", 'utf-8')
                 notify_queue.put(notify_bytes)
-        show_it(display, {'src': 0, 'tag': ''}, read_queue.qsize(), running_config['verbose'])
+        show_it(display, {'src': 0, 'tag': ''}, read_queue.qsize(), running_config['verbose'], currently_active)
         lasttime = display['start']
         for src in display['srcList']:
             if src['src'] != 0:
@@ -208,10 +211,10 @@ def main():
                     if running_config['mac'] is not None:
                         notify_bytes = bytes(F"\x00\x01\x00Trunk Recorder\x00Q:{read_queue.qsize()}\nDelay: {int((currtime - datetime.datetime.fromtimestamp(display['start'])).total_seconds())}\n{display['talkgroup_tag']}\n{src['tag']}\n{hex(src['src'])} -> {hex(display['tid'])}", 'utf-8')
                         notify_queue.put(notify_bytes)
-                show_it(display, src, read_queue.qsize(), running_config['verbose'])
+                show_it(display, src, read_queue.qsize(), running_config['verbose'], currently_active)
 
 
-def show_it(meta, src, q, verbose):
+def show_it(meta, src, q, verbose, currently_active):
     if verbose:
         return
     print("\033c", end="")
@@ -220,9 +223,10 @@ def show_it(meta, src, q, verbose):
     # print(q)
     currtime = datetime.datetime.now()
     if meta['audio'] == 'idle':
-        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': '0', 'talkgroup_tag': 'idle', 'srcList': 'idle'}
+        meta = {'audio': 'idle', 'freq_tag': 'idle', 'freq': '000000000', 'start': currtime.timestamp(), 'tid': '0', 'talkgroup_tag': 'idle', 'srcList': 'idle', 'length': 0}
     print('Last Update Time : {}'.format(currtime.strftime("%Y-%m-%d %H:%M:%S")))
     print('Recording  Time  : {}'.format(datetime.datetime.fromtimestamp(meta['start']).strftime("%Y-%m-%d %H:%M:%S")))
+    print('Currently Active : {}'.format([*currently_active]))
     print('Queue: {}\t\t    Delay: {}'.format(q, int((currtime - datetime.datetime.fromtimestamp(meta['start'])).total_seconds())))
     print('--------------------------------------')
     print('{} Hz : {}'.format(meta['freq'], meta['talkgroup_tag']))
@@ -293,10 +297,10 @@ def parse_config():
     return retval
 
 
-def inotify_thread(capturedir, read_queue):
+def inotify_thread(capturedir, read_queue, currently_active):
     # print("INOTIFY_THREAD: Setting up InotifyTree on {}...".format(capturedir))
     i = inotify.adapters.InotifyTree(
-            capturedir, mask=inotify.constants.IN_CLOSE_WRITE
+            capturedir, mask=inotify.constants.IN_CLOSE_WRITE | inotify.constants.IN_MODIFY
             )
     # print("INOTIFY_THREAD: Waiting on inotify events...")
 
@@ -304,6 +308,17 @@ def inotify_thread(capturedir, read_queue):
     for event in i.event_gen(yield_nones=False):
         (_, type_names, path, filename) = event
 
+        if filename.endswith('.wav'):
+            if type_names == ['IN_CREATE'] or type_names == ['IN_MODIFY']:
+                if path.replace(capturedir, "").split('/')[1] in currently_active:
+                    pass
+                else:
+                    currently_active[path.replace(capturedir, "").split('/')[1]] = "1"
+                read_queue.put({"audio": "update", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'length': 0})
+            if type_names == ['IN_CLOSE_WRITE']:
+                if path.replace(capturedir, "").split('/')[1] in currently_active:
+                    currently_active.pop(path.replace(capturedir, "").split('/')[1])
+                read_queue.put({"audio": "update", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'length': 0})
         if type_names == ['IN_CLOSE_WRITE'] and filename.endswith('.m4a'):
             # print("INOTIFY_THREAD: Queuing {}/{}".format(path, filename))
             # this will need a rewrite if we support reading on modify
@@ -311,8 +326,8 @@ def inotify_thread(capturedir, read_queue):
             media_json = open(media_audio.replace('m4a', 'json'))
             media_meta = json.load(media_json)
             media_json.close()
-            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], 'talkgroup_tag': media_meta['talkgroup_tag'], "start": media_meta['start_time'], "tid": media_meta['talkgroup'], "srcList": media_meta['srcList']})
-            read_queue.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}]})
+            read_queue.put({"audio": media_audio, "freq": media_meta['freq'], 'talkgroup_tag': media_meta['talkgroup_tag'], "start": media_meta['start_time'], "tid": media_meta['talkgroup'], "srcList": media_meta['srcList'], 'length': media_meta['call_length']})
+            read_queue.put({"audio": "idle", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'length': 0})
 
 
 def play_file(read_queue, now_playing, play):
@@ -323,12 +338,14 @@ def play_file(read_queue, now_playing, play):
         # print("PLAY_FILE_THREAD: Got a file to play, {}".format(media["audio"]))
         now_playing.put(media)
         if play:
-            if media["audio"] != "idle":
+            if media["audio"] != "idle" and media["audio"] != "update":
                 subprocess.run(
                         ["ffplay", "-hide_banner", "-autoexit", "-vn", "-nodisp", media["audio"]],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.STDOUT
                         )
+        else:
+            time.sleep(media['length'])
 
 
 if __name__ == "__main__":
