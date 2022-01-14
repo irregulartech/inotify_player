@@ -314,7 +314,7 @@ def inotify_thread(capturedir, read_queue, currently_active):
                     pass
                 else:
                     currently_active[path.replace(capturedir, "").split('/')[1]] = "1"
-                read_queue.put({"audio": "update", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'length': 0})
+                    read_queue.put({"audio": "update", 'start': datetime.datetime.now().timestamp(), 'srcList': [{'src': 0, 'tag': ''}], 'length': 0})
             if type_names == ['IN_CLOSE_WRITE']:
                 if path.replace(capturedir, "").split('/')[1] in currently_active:
                     currently_active.pop(path.replace(capturedir, "").split('/')[1])
